@@ -346,21 +346,16 @@ class QueuedJobRegistry(BaseRegistry):
         pass
 
     def requeue_stuck_jobs(self):
-        """This method requeues jobs that are not in the queue but are still queued in status
+        """This method requeues jobs that are popped off the queue but still belong to QueuedJobRegistry
         It is not defined in cleanup since we don't want this being called everytime count or get_job_ids is called
         """
         job_ids = self.get_job_ids()
         for job_id in job_ids:
-            # TODO: What to watch, what can and must be pipeliend, etc.
-            # Watch the registry and the job
-            # pipeline.watch(self.key, self.job_class.key_for(job_id))
-            # No pipeline required for timestamp, this number only gets larger or Noned
-
             # If job was enqueued AFTER the front of the queue it must have already been dequeued
             # This is faster than seeing if the job is in the queue directly.
             front_timestamp = self._get_front_queue_timestamp() 
             try:
-                if front_timestamp:
+                if front_timestamp is not None:
                     job = self.job_class.fetch(
                         job_id,
                         connection=self.connection,
@@ -370,8 +365,9 @@ class QueuedJobRegistry(BaseRegistry):
                         if job.enqueued_at < front_timestamp:
                             self.requeue(job)
                     else:
-                        # TODO: Should we do anything else?
-                        continue
+                        raise InvalidJobOperationError(
+                            "Job {} has no enqueue_at value!".format(job.id)
+                        )
                 else:
                     self.requeue(job_id)
             except NoSuchJobError:
@@ -387,11 +383,9 @@ class QueuedJobRegistry(BaseRegistry):
         jobs = queue.get_jobs(offset=0, length=1)
         if jobs: # If the queue is non-empty
             front_job = jobs[0]
-            if front_job.enqueued_at:
+            if front_job.enqueued_at is not None:
                 return front_job.enqueued_at
             else:
-                # TODO: What if somehow this Value is none, we might want to
-                # TODO: treat that differently than empty queue?
                 raise InvalidJobOperationError(
                     "Queued job {} has no enqueue_at value!".format(front_job.id)
                 )
